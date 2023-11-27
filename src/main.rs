@@ -1,10 +1,10 @@
-use std::{cmp, collections::BinaryHeap};
+use std::{cmp, collections::BinaryHeap, time::Instant};
 
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
-const H: usize = 3;
-const W: usize = 4;
-const END_TERN: u32 = 4;
+const H: usize = 30;
+const W: usize = 30;
+const END_TERN: u32 = 100;
 const moves: [(i32, i32); 4] = [(0, 1), (0, -1), (1, 0), (-1, 0)];
 
 #[derive(Default, Clone, PartialEq, Eq)]
@@ -102,6 +102,22 @@ impl std::fmt::Display for MazeState {
     }
 }
 
+struct TimeKeeper {
+    started_time: Instant,
+    time_threshold_milseconds: u128,
+}
+impl TimeKeeper {
+    fn new(time_threshold_milseconds: u128) -> Self {
+        TimeKeeper {
+            started_time: Instant::now(),
+            time_threshold_milseconds,
+        }
+    }
+    fn is_time_over(&self) -> bool {
+        self.started_time.elapsed().as_millis() >= self.time_threshold_milseconds
+    }
+}
+
 fn random_action(state: &MazeState) -> (i32, i32) {
     let actions = state.generate_legal_actions();
     actions[rand::thread_rng().gen_range(0..actions.len())]
@@ -157,6 +173,52 @@ fn beam_search_action(state: &MazeState, beam_width: usize, beam_depth: usize) -
     best_state.first_action
 }
 
+fn beam_search_with_time_threshold(
+    state: &MazeState,
+    beam_width: usize,
+    time_threshold_milseconds: u128,
+) -> (i32, i32) {
+    let mut time_keeper = TimeKeeper::new(time_threshold_milseconds);
+
+    let mut now_beam = BinaryHeap::new();
+    let mut best_state = state.clone();
+    now_beam.push(state.clone());
+    for t in 0.. {
+        let mut next_beam = BinaryHeap::new();
+        for _ in 0..beam_width {
+            if time_keeper.is_time_over() {
+                if best_state.first_action == (0, 0) {
+                    panic!()
+                }
+                return best_state.first_action;
+            }
+            match now_beam.pop() {
+                Some(now_state) => {
+                    let legal_actions = now_state.generate_legal_actions();
+                    for action in legal_actions {
+                        let mut next_state = now_state.clone();
+                        next_state.advance(action);
+                        next_state.evaluate_score();
+                        if t == 0 {
+                            next_state.first_action = action;
+                        }
+                        next_beam.push(next_state);
+                    }
+                }
+                None => break,
+            }
+        }
+        now_beam = next_beam;
+        best_state = now_beam.pop().unwrap();
+        if best_state.is_done() {
+            break;
+        }
+        now_beam.push(best_state.clone());
+    }
+
+    best_state.first_action
+}
+
 fn play_game(seed: u64) {
     let mut state = MazeState::new(seed);
     println!("{}", &state);
@@ -171,9 +233,11 @@ fn test_ai_score(game_number: usize) {
     let mut rng = StdRng::seed_from_u64(0);
     let mut score_cum = 0i32;
     for i in 0..game_number {
+        eprintln!("{}", i);
         let mut state = MazeState::new(rng.gen());
         while !state.is_done() {
-            state.advance(beam_search_action(&state, 2, END_TERN as usize));
+            // state.advance(beam_search_action(&state, 2, END_TERN as usize));
+            state.advance(beam_search_with_time_threshold(&state, 10, 10));
         }
         score_cum += state.game_score;
     }
@@ -182,7 +246,7 @@ fn test_ai_score(game_number: usize) {
 
 fn main() {
     println!("start game");
-    play_game(121321);
+    // play_game(121321);
     println!("start evaluate");
     test_ai_score(100);
 }
